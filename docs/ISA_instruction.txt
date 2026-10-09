@@ -3,80 +3,124 @@ ESPECIFICAÇÃO DA ISA 32-BIT PARA COPROCESSADOR GRÁFICO 2D
 
 Tamanho da palavra: 32 bits
 Arquitetura baseada em Opcodes de 4 bits.
-Instruções complexas utilizam múltiplas palavras (Multi-word) para
-facilitar o roteamento e a máquina de estados no hardware.
+O coprocessador utiliza busca passiva: as palavras são enviadas pelo HPS/ARM
+via MMIO, entram na FIFO, passam pelo registrador de instrução (IR) e são
+executadas pela unidade de controle.
 
-BACKGROUND - MUDAR O TILE (Opcode: 0000)
+Instruções de polígonos utilizam múltiplas palavras de 32 bits. Isso facilita
+a FIFO, a comunicação MMIO e a máquina de estados no hardware.
 
-Substitui um tile específico no tilemap.
-Tamanho: 1 Word (32 bits)
+BACKGROUND - MUDAR O TILE (Opcode: 0001)
 
-[31:28] : Opcode (0000) - 4 bits
-[27:22] : Coordenada X  - 6 bits (Posição X no tilemap: 0 a 63)
-[21:17] : Coordenada Y  - 5 bits (Posição Y no tilemap: 0 a 31)
-[16:09] : Cor/Paleta    - 8 bits (Cor do tile)
-[08:00] : Reservado     - 9 bits (Preenchimento com zeros)
-
-BACKGROUND - SCROLL (Opcode: 0001)
-
-Define o deslocamento da câmera sobre o background.
+Substitui a cor de um tile específico no tilemap.
 Tamanho: 1 Word (32 bits)
 
 [31:28] : Opcode (0001) - 4 bits
-[27:22] : Scroll X      - 6 bits (Deslocamento horizontal)
-[21:17] : Scroll Y      - 5 bits (Deslocamento vertical)
-[16:00] : Reservado     - 17 bits (Preenchimento com zeros)
+[27:22] : Coordenada X - 6 bits
+[21:17] : Coordenada Y - 5 bits
+[16:08] : Reservado - 9 bits (Preenchimento com zeros)
+[07:00] : Cor RGB332 - 8 bits
+
+Na implementação atual, o tilemap utilizado possui 40 colunas por 30 linhas.
+Assim, os valores válidos são X de 0 a 39 e Y de 0 a 29.
+
+BACKGROUND - SCROLL RELATIVO (Opcode: 0110)
+
+Desloca a câmera sobre o tilemap.
+Tamanho: 1 Word (32 bits)
+
+[31:28] : Opcode (0110) - 4 bits
+[27:26] : Direção - 2 bits
+           00 = Direita
+           01 = Esquerda
+           10 = Cima
+           11 = Baixo
+[25:22] : Quantidade de tiles - 4 bits (1 a 15)
+[21:00] : Reservado - 22 bits (Preenchimento com zeros)
+
+O scroll é relativo: cada comando soma ou subtrai a quantidade informada do
+deslocamento atual da câmera. A direção representa o movimento da câmera.
+Portanto, câmera para a direita faz o mapa parecer se mover para a esquerda
+na VGA.
 
 SPRITE - POSICIONAR SPRITE (Opcode: 0010)
 
-Atualiza os atributos (posição, espelhamento, visibilidade) de um sprite.
+Atualiza a posição e os atributos de um sprite.
 Tamanho: 1 Word (32 bits)
 
 [31:28] : Opcode (0010) - 4 bits
-[27:23] : ID Sprite     - 5 bits (Identificador: 0 a 31)
-[22:14] : Coordenada X  - 9 bits (Posição X na tela)
-[13:06] : Coordenada Y  - 8 bits (Posição Y na tela)
-[05:05] : Visível       - 1 bit  (1 = Ativo, 0 = Oculto)
-[04:03] : Espelhamento  - 2 bits (00=Normal, 01=Horiz, 10=Vert, 11=Ambos)
-[02:00] : Reservado     - 3 bits (Preenchimento com zeros)
+[27:23] : ID Sprite - 5 bits (Identificador: 0 a 31)
+[22:14] : Coordenada X - 9 bits
+[13:06] : Coordenada Y - 8 bits
+[05:05] : Visível - 1 bit (1 = Ativo, 0 = Oculto)
+[04:04] : Espelhamento Vertical - 1 bit
+[03:03] : Espelhamento Horizontal - 1 bit
+[02:02] : Transparente - 1 bit
+[01:00] : Reservado - 2 bits
 
-POLÍGONO - DRAW QUADRADO (Opcode: 0011)
+POLÍGONO - DRAW RETÂNGULO/QUADRADO (Opcode: 0011)
 
-Desenha um retângulo na tela.
+Desenha uma figura preenchida utilizando dois pontos opostos.
 Tamanho: 2 Words (64 bits)
 
-Palavra 1 (Word 1): Posição e Largura
-[31:28] : Opcode (0011) - 4 bits
-[27:19] : Coordenada X  - 9 bits (Posição X da origem)
-[18:11] : Coordenada Y  - 8 bits (Posição Y da origem)
-[10:02] : Largura       - 9 bits (Largura do retângulo)
-[01:00] : Reservado     - 2 bits (Preenchimento com zeros)
+A primeira palavra informa o primeiro ponto e a cor.
+A segunda palavra informa o segundo ponto e gera o pulso de desenho.
 
-Palavra 2 (Word 2): Altura e Cor
-[31:16] : Reservado     - 16 bits (Preenchimento com zeros)
-[15:08] : Altura        - 8 bits  (Altura do retângulo)
-[07:00] : Cor           - 8 bits  (Cor do preenchimento)
+Se a diferença horizontal e vertical entre os pontos for igual, a figura é um
+quadrado. Caso contrário, a figura é um retângulo.
+
+Palavra 1 (Word 1): Ponto 1 e Cor
+
+[31:28] : Opcode (0011) - 4 bits
+[27:26] : Etapa (00) - 2 bits (Ponto 1)
+[25:17] : Coordenada X1 - 9 bits
+[16:09] : Coordenada Y1 - 8 bits
+[08:01] : Cor RGB332 - 8 bits
+[00:00] : Reservado - 1 bit
+
+Palavra 2 (Word 2): Ponto 2 e Desenhar
+
+[31:28] : Opcode (0011) - 4 bits
+[27:26] : Etapa (01) - 2 bits (Ponto 2 e desenhar)
+[25:17] : Coordenada X2 - 9 bits
+[16:09] : Coordenada Y2 - 8 bits
+[08:00] : Reservado - 9 bits
 
 POLÍGONO - DRAW TRIÂNGULO (Opcode: 0100)
 
-Instrução Polígono - Draw Triângulo (64 bits)Bit RangeCampoTamanhoDescrição
-[63:60] : Opcode 4 bits0100
-[59:51] : Coord X1 9 bits Posição X do Vértice 1
-[50:43] : Coord Y1 8 bits Posição Y do Vértice 1
-[42:34] : Coord X2 9 bits Posição X do Vértice 2
-[33:26] : Coord Y2 8 bits Posição Y do Vértice 2
-[25:17] : Coord X3 9 bits Posição X do Vértice 3
-[16:9] : Coord Y3 8 bits Posição Y do Vértice 3
-[8:1] : Cor 8 bits Cor do preenchimento
-[0] : Reservado 1 bit 0 (Preenchimento)
+Desenha um triângulo preenchido utilizando três pontos.
+Tamanho: 3 Words (96 bits)
 
+A primeira palavra informa o vértice P1 e a cor.
+A segunda palavra informa o vértice P2.
+A terceira palavra informa o vértice P3 e gera o pulso para o rasterizador.
 
+Formato das três palavras:
+
+[31:28] : Opcode (0100) - 4 bits
+[27:26] : Etapa - 2 bits
+           00 = Ponto 1 e cor
+           01 = Ponto 2
+           10 = Ponto 3 e desenhar
+[25:17] : Coordenada X - 9 bits
+[16:09] : Coordenada Y - 8 bits
+[08:01] : Cor RGB332 - 8 bits (utilizada somente na etapa 00)
+[00:00] : Reservado - 1 bit
+
+A unidade de controle exige a ordem P1, P2 e P3. Caso uma etapa seja enviada
+fora da ordem, a instrução é invalidada, o sinal ERRO é ativado e o polígono
+parcial é descartado.
 
 SINCRONIZADOR DE QUADROS - VSYNC (Opcode: 0101)
 
-Pausa a execução da fila de instruções e aguarda o sinal de VBlank
-para evitar "screen tearing".
+Reservado para implementação futura.
+
+A ideia é que essa instrução pause a execução da FIFO até o período de VBlank,
+evitando alterações visuais no meio de um quadro e possíveis efeitos de
+screen tearing.
+
 Tamanho: 1 Word (32 bits)
 
 [31:28] : Opcode (0101) - 4 bits
-[27:00] : Reservado     - 28 bits (Ignorado pela decodificação)
+[27:00] : Reservado - 28 bits
+========================================================================
