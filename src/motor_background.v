@@ -1,9 +1,9 @@
 // motor_background.v
 // Plano de fundo baseado em tilemap 40 x 30 (tiles de 8 x 8 pixels).
 //
-// Usa apenas a mapa_rom (1200 x 8, init = background_map.mif).
-// Cada palavra da ROM ja e o indice de cor (RGB332) do tile naquela posicao,
-// portanto o dado lido da ROM vai direto para a saida indice_cor.
+// Usa a mapa_ram existente (1200 x 8, init = background_map.mif).
+// Cada palavra guarda a cor RGB332 do tile. A escrita pelo HPS e preservada.
+// A memoria e a paleta nao sao substituidas nesta atualizacao.
 //
 // Scroll (controle_sw, vindo da fsm_controle):
 //   SW3 = esquerda | SW2 = baixo | SW1 = cima | SW0 = direita
@@ -13,9 +13,9 @@
 //
 // Fluxo:
 //   x/y logico -> tile da tela (x>>3, y>>3) + scroll_tile (mod 40 / mod 30)
-//              -> endereco = tile_y*40 + tile_x -> mapa_rom -> indice_cor
+//              -> endereco = tile_y*40 + tile_x -> mapa_ram -> indice_cor
 //
-// Latencia: a mapa_rom (M10K) tem endereco registrado => 1 ciclo de clk.
+// A leitura sincrona da mapa_ram existente e preservada.
 
 module motor_background (
     input  wire        clk,
@@ -23,6 +23,19 @@ module motor_background (
     input  wire [8:0]  x_logico,        // 0..319
     input  wire [7:0]  y_logico,        // 0..239
     input  wire [3:0]  controle_sw,     // SW3=esq, SW2=baixo, SW1=cima, SW0=dir
+
+    // Comando da UC unica: direcao da camera e quantidade 1..15 tiles.
+    // Prioridade sobre as chaves somente no ciclo de scroll_atualizar.
+    input  wire        scroll_atualizar,
+    input  wire [1:0]  scroll_direcao,
+    input  wire [3:0]  scroll_quantidade,
+
+    // Escrita do tilemap pelo HPS (um tile = um bloco 8x8 de uma cor RGB332).
+    input  wire        tile_wr_en,
+    input  wire [5:0]  tile_wr_x,       // 0..39
+    input  wire [4:0]  tile_wr_y,       // 0..29
+    input  wire [7:0]  tile_wr_cor,     // RGB332
+
     output wire [7:0]  indice_cor
 );
 
@@ -42,6 +55,17 @@ module motor_background (
     reg [5:0] scroll_tile_x;   // 0..39
     reg [4:0] scroll_tile_y;   // 0..29
 
+    // A quantidade maxima e 15. Uma unica correcao basta para o wrap.
+    // As somas sao alargadas para nao perder o carry antes da comparacao.
+    wire [6:0] scroll_soma_x = {1'b0, scroll_tile_x} +
+                               {3'd0, scroll_quantidade};
+    wire [5:0] scroll_soma_y = {1'b0, scroll_tile_y} +
+                               {2'd0, scroll_quantidade};
+    wire [6:0] scroll_sub_x = {1'b0, scroll_tile_x} + 7'd40 -
+                              {3'd0, scroll_quantidade};
+    wire [5:0] scroll_sub_y = {1'b0, scroll_tile_y} + 6'd30 -
+                              {2'd0, scroll_quantidade};
+
     reg [21:0] contador_passo;
     wire       pulso_passo = (contador_passo == PASSO_CICLOS - 22'd1);
 
@@ -58,6 +82,34 @@ module motor_background (
         if (!reset_n) begin
             scroll_tile_x <= 6'd0;
             scroll_tile_y <= 5'd0;
+        end
+        else if (scroll_atualizar) begin
+            case (scroll_direcao)
+                2'b00: begin // camera para a direita
+                    if (scroll_soma_x >= 7'd40)
+                        scroll_tile_x <= scroll_soma_x - 7'd40;
+                    else
+                        scroll_tile_x <= scroll_soma_x[5:0];
+                end
+                2'b01: begin // camera para a esquerda
+                    if (scroll_tile_x < {2'd0, scroll_quantidade})
+                        scroll_tile_x <= scroll_sub_x[5:0];
+                    else
+                        scroll_tile_x <= scroll_tile_x - {2'd0, scroll_quantidade};
+                end
+                2'b10: begin // camera para cima
+                    if (scroll_tile_y < {1'b0, scroll_quantidade})
+                        scroll_tile_y <= scroll_sub_y[4:0];
+                    else
+                        scroll_tile_y <= scroll_tile_y - {1'b0, scroll_quantidade};
+                end
+                2'b11: begin // camera para baixo
+                    if (scroll_soma_y >= 6'd30)
+                        scroll_tile_y <= scroll_soma_y - 6'd30;
+                    else
+                        scroll_tile_y <= scroll_soma_y[4:0];
+                end
+            endcase
         end
         else if (pulso_passo) begin
             // Horizontal (esquerda tem prioridade sobre direita)
@@ -109,13 +161,25 @@ module motor_background (
     wire [10:0] endereco_mapa = linha_x40 + {5'd0, tile_x};
 
     // ============================================================
-    // MAPA_ROM (1200 x 8): a palavra lida ja e o indice de cor
+    // MAPA_RAM: leitura para o VGA + escrita pelo HPS
+    // endereco de escrita = tile_wr_y * 40 + tile_wr_x
     // ============================================================
-    mapa_rom ROM_MAPA (
-        .address (endereco_mapa),
-        .clock   (clk),
-        .rden    (1'b1),
-        .q       (indice_cor)
+    wire [10:0] wr_linha_x40 = ({6'd0, tile_wr_y} << 5) +
+                                ({6'd0, tile_wr_y} << 3);
+    wire [10:0] endereco_escrita = wr_linha_x40 + {5'd0, tile_wr_x};
+
+    // Protecao simples: ignora coordenadas fora do tilemap 40x30.
+    wire escrita_valida = tile_wr_en &&
+                          (tile_wr_x < 6'd40) &&
+                          (tile_wr_y < 5'd30);
+
+    mapa_ram RAM_MAPA (
+        .clock      (clk),
+        .rdaddress  (endereco_mapa),
+        .wraddress  (endereco_escrita),
+        .data       (tile_wr_cor),
+        .wren       (escrita_valida),
+        .q          (indice_cor)
     );
 
 endmodule
