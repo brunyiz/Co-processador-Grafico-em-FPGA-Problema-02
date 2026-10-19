@@ -217,10 +217,9 @@ Os registradores não são endereçáveis pelo programador: são escritos pela U
 
 ```
 .
-├── README.md
-├── .gitignore
 ├── docs/
 │   ├── ISA_instruction.txt            especificação da ISA
+│   └── README.md
 │   └── diagrama_alto_nivel.png        diagrama de blocos
 ├── software/                          programa do HPS (ARM)
 │   ├── gpu_driver.c                   driver MMIO (init, envio, espera)
