@@ -5,7 +5,7 @@ Núcleo de um coprocessador gráfico programável implementado em Verilog na pla
 
 Projeto desenvolvido para a disciplina **MI - Sistemas Digitais** (Problema 02, semestre 2026.2).
 
-> Legenda: 🟠 = **pendente de análise dos autores** (decisão de projeto que só a equipe pode confirmar).
+> 1. 🟠 
 
 ---
 
@@ -106,7 +106,7 @@ Deve existir, conforme a estratégia adotada pela equipe:
 
 No diagrama, `KEY0` e `CLOCK50MHZ` entram em `CLOCK_RESET`; o `CONTROLADOR_VGA` fornece as coordenadas aos motores; a `UNIDADE DE CONTROLE` aciona os motores (setas verdes) e escreve no `STATUS`, que o ARM lê de volta; a `FIFO` também alimenta o `STATUS` (setas vermelhas).
 
-🟠 *Pendente de análise pois o diagrama não mostra o datapath (banco de registradores e ULA) nem a unidade de controle de quadro, embora o RTL tenha banco/ULA dentro da unidade de controle; a equipe deve decidir se os acrescenta ao diagrama ou os explica só no texto.*
+2. 🟠
 
 O sistema tem dois planos independentes:
 
@@ -121,7 +121,7 @@ O sistema tem dois planos independentes:
 | Unidade de Controle | `unidade_controle.v` | FSM (`IDLE, SETTLE, RUN, TOG, TOGWAIT, WAIT_VBLANK`) que decodifica o opcode, valida a instrução e gera os pulsos para os motores. |
 | Datapath | `datapath_grafico.v` | Banco de registradores + duas ULAs que comparam a posição atual do sprite com o alvo da instrução. |
 | Banco de registradores | `banco_registradores_graficos.v` | `r0..r7` de 32 bits: vértices/cor do triângulo (`r0..r2`) e pontos/cor do retângulo (`r3..r4`). |
-| ULA | `ula_grafica.v` | Soma, subtração, AND, OR e flags `zero`/`menor`. 🟠 *Pendente de análise pois a decisão de sessão foi dispensar a ULA, mas esta versão a inclui; a equipe precisa definir como será apresentada.* |
+| ULA | `ula_grafica.v` | Soma, subtração, AND, OR e flags `zero`/`menor`. 3. 🟠 |
 | Registrador de status | `main.v` (`status_reg`) | `GPU_STATUS`: assinatura `0x4750` em `[31:16]` e `DONE, BUSY, READY, ERRO, ACK` em `[4:0]`. |
 | Motor de Background | `motor_background.v`, `mapa_ram.v` | Tilemap 40×30 em RAM de duas portas (tiles de cor sólida, 8×8 px) e *scroll* relativo com *wrap*. |
 | Motor de Sprites | `motor_sprites.v`, `sprite_rom.v` | 32 sprites 16×16 (registradores de atributos + ROM de padrões). |
@@ -153,7 +153,7 @@ Endereços na ponte *lightweight* (base `0xFF200000`):
 
 - `READY`: há espaço na FIFO para nova palavra. `BUSY`: UC ou FIFO ocupadas. `DONE`: FIFO vazia e UC ociosa. `ACK`: palavra aceita. `ERRO`: instrução inválida.
 - O controlador VGA gera o pulso `inicio_vblank` (início da linha 480). A instrução `VSYNC` bloqueia a fila até o **próximo** VBlank, permitindo agrupar alterações visuais e evitar *tearing*.
-- 🟠 *Pendente de análise pois não há unidade de controle de quadro separada nem contador de quadros: a equipe deve decidir se `VSYNC` + `inicio_vblank` bastam para cumprir esse requisito ou se acrescentam um módulo.*
+- 4. 🟠
 
 ---
 
@@ -287,7 +287,7 @@ Arquivos gerados (`src/soc_system/`, `db/`, `output_files/`, `.sof`...) não sã
 
 **Programa em Assembly da ISA da equipe:** `software/montador_gasm.py` converte arquivos `.gasm` (mnemônicos `TILE`, `SPRITE`, `RECT_P1/P2`, `TRI_P1/P2/P3`, `BG_SCROLL`, `VSYNC`) nas palavras de 32 bits.
 
-🟠 *Pendente de análise pois a sintaxe do Assembly da ISA é decisão dos autores: o montador é uma proposta e ainda falta o programa `.gasm` de demonstração versionado no repositório e sua integração com o driver.*
+5. 🟠
 
 ---
 
@@ -323,18 +323,18 @@ Reset: botão `KEY0` da placa (ativo em nível baixo), sincronizado em `clock_re
 | Comandos inválidos | Opcode desconhecido, tile fora da grade, etapa fora de ordem → `ERRO` | Menu do HPS (leitura de `STATUS`) |
 | Sincronização busy/done | `BUSY` durante `SPRITE`/`VSYNC`; `DONE` ao final | Leitura de `STATUS` |
 
-🟠 *Pendente de análise pois os resultados observados nestes cenários só os autores podem registrar após rodar na placa.*
+6. 🟠
 
 ### Testbenches
 
 - Testbench por módulo principal.
 - Testbench de integração do coprocessador.
 
-🟠 *Pendente de análise pois não há testbenches nesta versão do pacote; os da versão anterior referenciavam módulos removidos (`unidade_controle_sprites`, `controle_quadro`) e precisam ser adaptados.*
+7. 🟠
 
 ### Scripts de Automação
 
-`software/montador_gasm.py` (montagem de `.gasm`). Comandos de simulação/síntese: 🟠 *pendente de análise pois dependem do fluxo escolhido pela equipe (ModelSim/Questa ou Quartus em linha de comando).*
+`software/montador_gasm.py` (montagem de `.gasm`). Comandos de simulação/síntese: 8. 🟠
 
 ---
 
@@ -342,21 +342,21 @@ Reset: botão `KEY0` da placa (ativo em nível baixo), sincronizado em `clock_re
 
 ### Utilização de Recursos
 
-🟠 *Pendente de análise pois a tabela deve ser extraída do relatório do Fitter após a compilação final (ALMs, registradores, pinos, blocos de memória, DSPs).*
+9. 🟠
 
 ### Timing
 
-🟠 *Pendente de análise pois Fmax, *setup slack* por *corner* e caminho crítico só existem após a compilação. Ponto de atenção: o rasterizador calcula três funções de borda por pixel em lógica combinacional, e o clock de 25 MHz é gerado por divisor (`create_generated_clock` em `clocks.sdc`).*
+10. 🟠
 
 ### Desempenho
 
 - Instruções `TILE`, `SCROLL`, `RETANGULO`, `TRIANGULO`: concluem em 1 ciclo de 25 MHz na UC após chegarem ao IR.
 - `SPRITE`: movimento em malha fechada de ≈ 1 px a cada 14 ms; um deslocamento longo (≈ 300 px) leva da ordem de 4 s e bloqueia a fila até concluir.
-- 🟠 *Vazão MMIO (palavras/s) e latência medida: pendente de análise pois exige medição na placa.*
+- 11. 🟠
 
 ### Demonstração em Hardware
 
-🟠 *Pendente de análise pois fotos, vídeos e observações da placa devem ser registrados pelos autores.*
+12. 🟠
 
 ---
 
@@ -380,9 +380,9 @@ Reset: botão `KEY0` da placa (ativo em nível baixo), sincronizado em `clock_re
 
 ## Autores
 
-- 🟠 *Autor 1 (preencher)*
-- 🟠 *Autor 2 (preencher)*
-- 🟠 *Autor 3 (preencher)*
+- *Bruna de Almeida Nascimento*
+- *Carlos Daniel da Silva Jesus*
+- *Diego Mercês Almeida*
 
 Bacharelado em Engenharia de Computação - UEFS
 Disciplina: MI - Sistemas Digitais (2026.2)
