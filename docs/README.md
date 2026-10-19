@@ -384,8 +384,8 @@ Reset: botão `KEY0` da placa (ativo em nível baixo), sincronizado em `clock_re
 - 🟠 *Autor 2 (preencher)*
 - 🟠 *Autor 3 (preencher)*
 
-Bacharelado em Engenharia de Computação — UEFS
-Disciplina: MI — Sistemas Digitais (2026.2)
+Bacharelado em Engenharia de Computação - UEFS
+Disciplina: MI - Sistemas Digitais (2026.2)
 
 ---
 
