@@ -5,6 +5,7 @@
 module compositor (
    input  wire [7:0] cor_bg,    // Índice de cor vindo do motor de background
    input  wire [7:0] cor_spr,   // Índice de cor vindo do motor de sprites
+   input  wire       spr_valido,// 1 quando o pixel do sprite deve cobrir as camadas inferiores
    input  wire [7:0] cor_poly,  // Índice de cor vindo do rasterizador de polígonos
    output reg  [7:0] cor_final  // Índice de cor final a ser enviado para a RAM de paleta
 );
@@ -13,7 +14,7 @@ module compositor (
    // O índice de cor 8'h00 (0) é reservado para transparência em sprites e polígonos.
 	
    always @(*) begin
-      if (cor_spr != 8'd0) begin
+      if (spr_valido) begin
          cor_final = cor_spr;   // Prioridade máxima os sprites ativos
       end else if (cor_poly != 8'd0) begin
          cor_final = cor_poly;    // Prioridade média para polígonos rasterizados

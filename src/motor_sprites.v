@@ -1,33 +1,28 @@
 // motor_sprites.v
 // Motor de 32 sprites 16x16.
-// Controles no modo SPRITES:
-//   KEY3 + KEY2: movem o sprite selecionado.
-//   KEY1: alterna o par de direcoes.
-//      modo 0 -> KEY3=esquerda, KEY2=baixo
-//      modo 1 -> KEY3=direita,  KEY2=cima
-//   SW7: transparencia (1 = cor 0 transparente; 0 = cor 0 opaca para demonstracao)
-//   SW6: espelhamento horizontal
-//   SW5: espelhamento vertical
-//   SW4..SW0: endereco do sprite (0..31)
+// Movimento e atributos recebidos da UC (sinais internos derivados da ISA).
+// Nao ha entradas de botoes/chaves da placa neste motor.
 
 module motor_sprites (
    input  wire        clk,
    input  wire        reset_n,
    input  wire [8:0]  x_logico,
    input  wire [7:0]  y_logico,
-   input  wire [2:0]  botoes,          // [2]=KEY3, [1]=KEY2, [0]=KEY1; ativos em 0
-   input  wire [7:0]  controle_sw,
+   input  wire [2:0]  movimento_isa,   // sinais internos da UC; ativos em 0
+   input  wire [8:0]  atributos_isa,
    output reg  [7:0]  indice_cor,
+   output wire        pixel_valido,
    output wire [8:0]  sprite_x_debug,
    output wire [7:0]  sprite_y_debug,
    output wire [4:0]  sprite_id_debug,
    output wire        direcao_debug
 );
 
-   wire [4:0] selecao_sprite = controle_sw[4:0];
-   wire sw_transparencia = controle_sw[7];
-   wire sw_mirror_h      = controle_sw[6];
-   wire sw_mirror_v      = controle_sw[5];
+   wire [4:0] selecao_sprite = atributos_isa[4:0];
+   wire sw_transparencia = atributos_isa[7];
+   wire sw_mirror_h      = atributos_isa[6];
+   wire sw_mirror_v      = atributos_isa[5];
+   wire sw_visivel       = atributos_isa[8];
 
    reg [8:0] sprite_x [0:31];
    reg [7:0] sprite_y [0:31];
@@ -52,8 +47,8 @@ module motor_sprites (
          contador_velocidade <= contador_velocidade + 19'd1;
    end
 
-   // KEY1 alterna o sentido dos dois botoes de movimento.
-   // Sincronizacao + borda + bloqueio de ~10 ms para evitar bounce.
+   // O sinal interno de direcao alterna os dois sentidos de movimento.
+   // Sincronizacao + borda + bloqueio curto evitam repetir a troca de modo.
    reg key1_sync0, key1_sync1, key1_anterior;
    reg [18:0] debounce_key1;
    reg modo_direcao;
@@ -67,7 +62,7 @@ module motor_sprites (
          debounce_key1 <= 19'd0;
          modo_direcao <= 1'b0;
       end else begin
-         key1_sync0 <= botoes[0];
+         key1_sync0 <= movimento_isa[0];
          key1_sync1 <= key1_sync0;
          key1_anterior <= key1_sync1;
 
@@ -80,8 +75,8 @@ module motor_sprites (
       end
    end
 
-   wire key3_ativo = !botoes[2];
-   wire key2_ativo = !botoes[1];
+   wire key3_ativo = !movimento_isa[2];
+   wire key2_ativo = !movimento_isa[1];
 
    // Atributos + movimento
    integer k;
@@ -92,7 +87,7 @@ module motor_sprites (
             sprite_x[k] <= 9'd16 + ((k % 8) * 9'd36);
             sprite_y[k] <= 8'd16 + ((k / 8) * 8'd52);
             sprite_pat[k] <= k[4:0];
-            sprite_en[k] <= 1'b1;
+            sprite_en[k] <= 1'b0; // sprites aparecem somente apos comando ISA visivel=1
             sprite_mirror_h[k] <= 1'b0;
             sprite_mirror_v[k] <= 1'b0;
             sprite_transp[k] <= 1'b1;
@@ -102,16 +97,17 @@ module motor_sprites (
          sprite_transp[selecao_sprite]  <= sw_transparencia;
          sprite_mirror_h[selecao_sprite] <= sw_mirror_h;
          sprite_mirror_v[selecao_sprite] <= sw_mirror_v;
+         sprite_en[selecao_sprite] <= sw_visivel;
 
          if (pulso_movimento) begin
             if (!modo_direcao) begin
-               // Estado inicial pedido: KEY3 esquerda, KEY2 baixo.
+               // modo 0: eixo X decrementa e eixo Y incrementa.
                if (key3_ativo && sprite_x[selecao_sprite] > 9'd0)
                   sprite_x[selecao_sprite] <= sprite_x[selecao_sprite] - 9'd1;
                if (key2_ativo && sprite_y[selecao_sprite] < 8'd224)
                   sprite_y[selecao_sprite] <= sprite_y[selecao_sprite] + 8'd1;
             end else begin
-               // Depois de KEY1: KEY3 direita, KEY2 cima.
+               // modo 1: eixo X incrementa e eixo Y decrementa.
                if (key3_ativo && sprite_x[selecao_sprite] < 9'd304)
                   sprite_x[selecao_sprite] <= sprite_x[selecao_sprite] + 9'd1;
                if (key2_ativo && sprite_y[selecao_sprite] > 8'd0)
@@ -135,6 +131,8 @@ module motor_sprites (
    reg [3:0] py_local;
    reg [4:0] pat_local;
    reg       transp_local;
+   reg       pixel_encontrado_d;
+   reg       transp_local_d;
    integer idx;
    reg [8:0] dx_local;
    reg [7:0] dy_local;
@@ -174,13 +172,23 @@ module motor_sprites (
        .q       (cor_rom)
    );
 
-   // Com transparencia ligada, indice 0 deixa a camada de baixo aparecer.
-   // Com transparencia desligada, o zero vira branco para deixar o teste evidente.
+   // Transparencia e independente da visibilidade do sprite:
+   // invisivel nao gera pixel; transparente torna apenas a cor zero vazada.
+   // Metadados atrasados um clock para acompanhar a saida registrada da ROM.
+   always @(posedge clk or negedge reset_n) begin
+      if (!reset_n) begin
+         pixel_encontrado_d <= 1'b0;
+         transp_local_d <= 1'b1;
+      end else begin
+         pixel_encontrado_d <= pixel_encontrado;
+         transp_local_d <= transp_local;
+      end
+   end
+
+   assign pixel_valido = pixel_encontrado_d && (!transp_local_d || cor_rom != 8'd0);
    always @(*) begin
-		if (!pixel_encontrado || transp_local || (cor_rom == 8'd0))
-			indice_cor = 8'd0;
-		else
-			indice_cor = cor_rom;
-		end
+      if (pixel_valido) indice_cor = cor_rom;
+      else indice_cor = 8'd0;
+   end
 
 endmodule

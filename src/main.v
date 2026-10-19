@@ -5,6 +5,11 @@
 // Alinhado com as portas fisicas em maiusculas especificadas no top-level 'DE1_SOC_golden_top.v'.
 
 module main (
+	// PIOs exportados pelo soc_system: entrada passiva de comandos.
+	input  wire [31:0] GPU_CMD,
+	input  wire        GPU_REQ,
+	input  wire        HPS_RESET_N,
+	output wire [31:0] GPU_STATUS,
 	// Clocks e Resets da Placa DE1-SoC (Sinais de Entrada Fisicos)
 	input  wire        CLOCK_50,         // Clock de 50 MHz vindo da placa (CLOCK_50)
 	input  wire [3:0]  KEY,              // Botoes mecanicos da placa (KEY[3:0]), ativos em 0
@@ -33,7 +38,6 @@ module main (
 	// Mapeamento dos pinos maiusculos da placa para os nomes internos do projeto
 	wire        clock_50mhz = CLOCK_50;
 	wire [3:0]  key_n       = KEY;
-	wire [9:0]  sw          = SW;
 
 	// Barramentos de sinal para feedbacks e barramento de exibicao interna
 	wire [9:0]  ledr;
@@ -79,7 +83,7 @@ module main (
 	// Divisor de clock e sincronizador de reset
  clock_reset divisor_clock (
 	   .CLOCK_50  (clock_50mhz),
-	   .reset_n   (key_n[0]),   // O botao KEY0 esta fixado como reset fisico
+ 	   .reset_n   (key_n[0] & HPS_RESET_N),
 	   .vga_clk   (clock_vga),
 	   .vga_rst_n (reset_vga_n)
 	);
@@ -90,6 +94,7 @@ module main (
    wire [9:0] coord_x_vga;   // Coluna de pixel na tela (0 a 639)
    wire [9:0] coord_y_vga;   // Linha de pixel na tela (0 a 479)
    wire       area_visivel;   // Sinal de blanking (1 = desenhando, 0 = apagamento)
+   wire       inicio_vblank;
 
    // Gerador de sincronismo VGA de 640x480 @ 60Hz
    controlador_vga gerador_sincronismo (
@@ -98,6 +103,7 @@ module main (
       .o_hsync   (vga_hs),
       .o_vsync   (vga_vs),
       .o_blank_n (area_visivel),
+      .o_inicio_vblank(inicio_vblank),
       .o_x       (coord_x_vga),
       .o_y       (coord_y_vga)
    );
@@ -110,40 +116,40 @@ module main (
    wire [8:0] coord_logica_x = coord_x_vga[9:1]; // Posicao logica horizontal (0-319)
    wire [7:0] coord_logica_y = coord_y_vga[9:1]; // Posicao logica vertical (0-239)
 
-   // Unidade de Controle e FSM
-   wire [1:0] modo_selecionado = sw[9:8]; // Definido pelas chaves SW9 e SW8
-   wire [1:0] estado_atual_fsm;           // Estado de operacao consolidado
+   // Os controles de desenho fisicos foram removidos: chaves/botoes nao
+   // comandam motores. KEY0 permanece somente como reset global da placa.
+   wire [1:0] estado_atual_fsm = 2'b00;
 
-   // Barramentos de pinagem de controle direcionados gerados pela FSM
-   wire [3:0] sw_background_control;
-   wire [2:0] key_sprites_control;
-   wire [7:0] sw_sprites_control;
-   wire [7:0] sw_poligonos_control;
-   wire       key_poligonos_control;
-
-   // FSM que ativa ou gerencia os modos de desenho baseado nas chaves
-   fsm_controle controle_sistema (
-      .clk             (clock_vga),
-      .reset_n         (reset_vga_n),
-      .seletor         (modo_selecionado),
-      .botoes_raw      (key_n),
-      .chaves_raw      (sw),
-      .sw_background   (sw_background_control),
-      .key_sprites     (key_sprites_control),
-      .sw_sprites      (sw_sprites_control),
-      .sw_poligonos    (sw_poligonos_control),
-      .key_poligonos   (key_poligonos_control),
-      .estado          (estado_atual_fsm)
-   );
-
-   // Interface de comandos graficos de 32 bits
-   wire [31:0] comando_grafico;
-   wire        comando_valido;
+   // Declara os barramentos de debug do rasterizador com suas larguras.
+   wire [8:0] cursor_x_debug;
+   wire [7:0] cursor_y_debug;
+   wire [1:0] captura_poligono_debug;
 
    // Barramentos de cor de 8 bits gerados por cada motor grafico
    wire [7:0] cor_fundo;
    wire [7:0] cor_sprite;
    wire [7:0] cor_poligono;
+
+   // Sinais de escrita do tilemap vindos do decodificador de comandos.
+   wire        tile_wr_en;
+   wire [5:0]  tile_wr_x;
+   wire [4:0]  tile_wr_y;
+   wire [7:0]  tile_wr_cor;
+
+   // Scroll comandado pela mesma unidade que trata sprites e tiles.
+   wire        scroll_atualizar;
+   wire [1:0]  scroll_direcao;
+   wire [3:0]  scroll_quantidade;
+
+   // Triangulo enviado pelo ARM em tres comandos de 32 bits.
+   wire        tri_desenhar;
+   wire [8:0]  tri_x1, tri_x2, tri_x3;
+   wire [7:0]  tri_y1, tri_y2, tri_y3, tri_cor;
+
+   // Retangulo/quadrado enviado pelo ARM em duas palavras de 32 bits.
+   wire        ret_desenhar;
+   wire [8:0]  ret_x1, ret_x2;
+   wire [7:0]  ret_y1, ret_y2, ret_cor;
 
    // Motor de plano de fundo (background)
    motor_background motor_background (
@@ -151,44 +157,119 @@ module main (
       .reset_n   (reset_vga_n),
       .x_logico  (coord_logica_x),
       .y_logico  (coord_logica_y),
-      .background_sentido      (fio_sentido),
-	  .background_deslocamento (fio_deslocamento),
-	  .background_atualizar    (fio_atualizar_background),
+      .tile_wr_en (tile_wr_en),
+      .tile_wr_x  (tile_wr_x),
+      .tile_wr_y  (tile_wr_y),
+      .tile_wr_cor(tile_wr_cor),
+      .scroll_atualizar (scroll_atualizar),
+      .scroll_direcao   (scroll_direcao),
+      .scroll_quantidade(scroll_quantidade),
       .indice_cor(cor_fundo)
    );
 
-   // Motor de Sprites: recebe botoes de movimentacao e chaves de selecao filtrados pela FSM
+   // Caminho passivo: PIOs do HPS -> FIFO/IR -> UC unica -> motores.
+   wire [31:0] ir;
+   wire        instr_valid, uc_busy, uc_done, uc_invalida;
+   wire fila_ack, fila_ready, fila_busy, fila_done, fila_erro;
+   wire [3:0] fila_quantidade;
+
+   wire [2:0]  sprite_movimento_isa;
+   wire [8:0]  sprite_atributos_isa;
+
    wire [8:0] sprite_x_debug;
    wire [7:0] sprite_y_debug;
+   wire       sprite_pixel_valido;
    wire [4:0] sprite_id_debug;
    wire       sprite_direcao_debug;
 
-   motor_sprites motor_sprites (
-      .clk       (clock_vga),
-      .reset_n   (reset_vga_n),
-      .x_logico  (coord_logica_x),
-      .y_logico  (coord_logica_y),
-      .botoes    (key_sprites_control),
-      .controle_sw(sw_sprites_control),
-      .indice_cor(cor_sprite),
-      .sprite_x_debug(sprite_x_debug),
-      .sprite_y_debug(sprite_y_debug),
-      .sprite_id_debug(sprite_id_debug),
-      .direcao_debug(sprite_direcao_debug)
+   fila_comandos fila (
+      .clk(clock_vga), .reset_n(reset_vga_n),
+      .mmio_comando(GPU_CMD), .mmio_req(GPU_REQ), .ack(fila_ack),
+      .ready(fila_ready), .uc_busy(uc_busy), .uc_done(uc_done),
+      .uc_invalida(uc_invalida), .erro(fila_erro),
+      .ir(ir), .instr_valid(instr_valid),
+      .busy(fila_busy), .done(fila_done), .quantidade(fila_quantidade)
    );
 
-   wire [8:0] cursor_x_debug;
-   wire [7:0] cursor_y_debug;
-   wire [1:0] captura_poligono_debug;
+   // Registrador dedicado de status. Bits 4..0: DONE, BUSY, READY, ERRO, ACK.
+   // A assinatura 0x4750 permite ao programa HPS validar o hardware.
+   reg [31:0] status_reg;
+   assign GPU_STATUS = status_reg;
+   always @(posedge clock_vga or negedge reset_vga_n) begin
+      if (!reset_vga_n)
+         status_reg <= {16'h4750, 11'd0, 5'b00101};
+      else
+         status_reg <= {16'h4750, 11'd0, fila_done, fila_busy,
+                        fila_ready, fila_erro, fila_ack};
+   end
 
-   // Rasterizador: SW3=esq, SW2=baixo, SW1=cima, SW0=dir; KEY3 marca.
+   unidade_controle uc_sprites (
+      .clk                (clock_vga),
+      .reset_n            (reset_vga_n),
+      .instr_valid        (instr_valid),
+      .instr              (ir),
+      .inicio_vblank      (inicio_vblank),
+      .busy               (uc_busy),
+      .done               (uc_done),
+      .instr_invalida     (uc_invalida),
+      .sprite_movimento_isa(sprite_movimento_isa),
+      .sprite_atributos_isa(sprite_atributos_isa),
+      .tile_wr_en         (tile_wr_en),
+      .tile_wr_x          (tile_wr_x),
+      .tile_wr_y          (tile_wr_y),
+      .tile_wr_cor        (tile_wr_cor),
+      .scroll_atualizar  (scroll_atualizar),
+      .scroll_direcao    (scroll_direcao),
+      .scroll_quantidade(scroll_quantidade),
+      .tri_desenhar      (tri_desenhar),
+      .tri_x1            (tri_x1),
+      .tri_y1            (tri_y1),
+      .tri_x2            (tri_x2),
+      .tri_y2            (tri_y2),
+      .tri_x3            (tri_x3),
+      .tri_y3            (tri_y3),
+      .tri_cor           (tri_cor),
+      .ret_desenhar      (ret_desenhar),
+      .ret_x1            (ret_x1),
+      .ret_y1            (ret_y1),
+      .ret_x2            (ret_x2),
+      .ret_y2            (ret_y2),
+      .ret_cor           (ret_cor),
+      .sprite_x_atual     (sprite_x_debug),
+      .sprite_y_atual     (sprite_y_debug),
+      .modo_direcao_atual (sprite_direcao_debug)
+   );
+
+   motor_sprites motor_sprites (
+      .clk            (clock_vga),
+      .reset_n        (reset_vga_n),
+      .x_logico       (coord_logica_x),
+      .y_logico       (coord_logica_y),
+      .movimento_isa  (sprite_movimento_isa),
+      .atributos_isa  (sprite_atributos_isa),
+      .pixel_valido   (sprite_pixel_valido),
+      .indice_cor     (cor_sprite),
+      .sprite_x_debug (sprite_x_debug),
+      .sprite_y_debug (sprite_y_debug),
+      .sprite_id_debug(sprite_id_debug),
+      .direcao_debug  (sprite_direcao_debug)
+   );
+
+   // Rasterizador comandado exclusivamente pelas instrucoes de poligono.
    rasterizador_poligonos rasterizador_poligonos (
       .clk       (clock_vga),
       .reset_n   (reset_vga_n),
       .x_logico  (coord_logica_x),
       .y_logico  (coord_logica_y),
-      .sw        (sw_poligonos_control),
-      .botao_marcar(key_poligonos_control),
+      .triangulo_desenhar(tri_desenhar),
+      .tri_x1    (tri_x1), .tri_y1(tri_y1),
+      .tri_x2    (tri_x2), .tri_y2(tri_y2),
+      .tri_x3    (tri_x3), .tri_y3(tri_y3),
+      .tri_cor   (tri_cor),
+      .retangulo_desenhar(ret_desenhar),
+      .ret_x1    (ret_x1), .ret_y1(ret_y1),
+      .ret_x2    (ret_x2), .ret_y2(ret_y2),
+      .ret_cor   (ret_cor),
       .indice_cor(cor_poligono),
       .cursor_x_debug(cursor_x_debug),
       .cursor_y_debug(cursor_y_debug),
@@ -201,6 +282,7 @@ module main (
    compositor compositor_de_video (
       .cor_bg    (cor_fundo),
       .cor_spr   (cor_sprite),
+      .spr_valido(sprite_pixel_valido),
       .cor_poly  (cor_poligono),
       .cor_final (cor_pixel_final)
    );
@@ -219,30 +301,18 @@ module main (
    assign vga_g = (area_visivel) ? rgb_final[15:8]  : 8'd0;
    assign vga_b = (area_visivel) ? rgb_final[7:0]   : 8'd0;
 
-   // LEDs vermelhos mostram o modo atual da FSM e estado das chaves
-   assign ledr[9:8] = modo_selecionado;
-   assign ledr[7:0] = sw[7:0];
+   // LED9 READY, LED8 BUSY, LED7 DONE, LED6 ERRO,
+   // LED5 cheia, LED4 ACK, LED3..0 quantidade na FIFO.
+   assign ledr = {fila_ready, fila_busy, fila_done, fila_erro,
+                  !fila_ready, fila_ack, fila_quantidade};
 
-   // Displays estaveis de depuracao.
-   // HEX2 HEX1 HEX0 = X em hexadecimal; HEX4 HEX3 = Y; HEX5 = modo.
+   // Displays de depuracao: X/Y do sprite atualmente selecionado.
    reg [8:0] display_x;
    reg [7:0] display_y;
 
    always @(*) begin
-      case (estado_atual_fsm)
-         2'b01: begin
-            display_x = sprite_x_debug;
-            display_y = sprite_y_debug;
-         end
-         2'b11: begin
-            display_x = cursor_x_debug;
-            display_y = cursor_y_debug;
-         end
-         default: begin
-            display_x = {5'd0, sw_background_control};
-            display_y = 8'd0;
-         end
-      endcase
+      display_x = sprite_x_debug;
+      display_y = sprite_y_debug;
    end
 
    decodificador_hex decodificador_hex0 (

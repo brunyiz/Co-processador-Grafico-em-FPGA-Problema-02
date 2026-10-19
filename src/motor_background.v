@@ -5,11 +5,7 @@
 // Cada palavra guarda a cor RGB332 do tile. A escrita pelo HPS e preservada.
 // A memoria e a paleta nao sao substituidas nesta atualizacao.
 //
-// Scroll (controle_sw, vindo da fsm_controle):
-//   SW3 = esquerda | SW2 = baixo | SW1 = cima | SW0 = direita
-// O deslocamento e feito SEMPRE em passos de 1 tile (8 pixels), com
-// repeticao automatica enquanto a chave estiver ligada, e com wrap
-// (a cena e repetida: 40 tiles na horizontal, 30 na vertical).
+// O scroll e alterado somente por instrucoes recebidas da unidade de controle.
 //
 // Fluxo:
 //   x/y logico -> tile da tela (x>>3, y>>3) + scroll_tile (mod 40 / mod 30)
@@ -22,10 +18,7 @@ module motor_background (
     input  wire        reset_n,
     input  wire [8:0]  x_logico,        // 0..319
     input  wire [7:0]  y_logico,        // 0..239
-    input  wire [3:0]  controle_sw,     // SW3=esq, SW2=baixo, SW1=cima, SW0=dir
-
     // Comando da UC unica: direcao da camera e quantidade 1..15 tiles.
-    // Prioridade sobre as chaves somente no ciclo de scroll_atualizar.
     input  wire        scroll_atualizar,
     input  wire [1:0]  scroll_direcao,
     input  wire [3:0]  scroll_quantidade,
@@ -38,13 +31,6 @@ module motor_background (
 
     output wire [7:0]  indice_cor
 );
-
-    // ============================================================
-    // PARAMETROS
-    // ============================================================
-    // Ciclos de clk (25 MHz) entre dois passos de scroll.
-    // 3_000_000 / 25 MHz = 120 ms por tile (~8 tiles/s).
-    parameter PASSO_CICLOS = 22'd3_000_000;
 
     localparam TILES_X = 6'd40;
     localparam TILES_Y = 5'd30;
@@ -65,18 +51,6 @@ module motor_background (
                               {3'd0, scroll_quantidade};
     wire [5:0] scroll_sub_y = {1'b0, scroll_tile_y} + 6'd30 -
                               {2'd0, scroll_quantidade};
-
-    reg [21:0] contador_passo;
-    wire       pulso_passo = (contador_passo == PASSO_CICLOS - 22'd1);
-
-    always @(posedge clk or negedge reset_n) begin
-        if (!reset_n)
-            contador_passo <= 22'd0;
-        else if (pulso_passo)
-            contador_passo <= 22'd0;
-        else
-            contador_passo <= contador_passo + 22'd1;
-    end
 
     always @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -110,35 +84,6 @@ module motor_background (
                         scroll_tile_y <= scroll_soma_y[4:0];
                 end
             endcase
-        end
-        else if (pulso_passo) begin
-            // Horizontal (esquerda tem prioridade sobre direita)
-            if (controle_sw[3]) begin
-                if (scroll_tile_x == 6'd0)
-                    scroll_tile_x <= TILES_X - 6'd1;
-                else
-                    scroll_tile_x <= scroll_tile_x - 6'd1;
-            end
-            else if (controle_sw[0]) begin
-                if (scroll_tile_x == TILES_X - 6'd1)
-                    scroll_tile_x <= 6'd0;
-                else
-                    scroll_tile_x <= scroll_tile_x + 6'd1;
-            end
-
-            // Vertical (cima tem prioridade sobre baixo)
-            if (controle_sw[1]) begin
-                if (scroll_tile_y == 5'd0)
-                    scroll_tile_y <= TILES_Y - 5'd1;
-                else
-                    scroll_tile_y <= scroll_tile_y - 5'd1;
-            end
-            else if (controle_sw[2]) begin
-                if (scroll_tile_y == TILES_Y - 5'd1)
-                    scroll_tile_y <= 5'd0;
-                else
-                    scroll_tile_y <= scroll_tile_y + 5'd1;
-            end
         end
     end
 

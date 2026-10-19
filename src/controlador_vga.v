@@ -8,6 +8,7 @@ module controlador_vga (
    output reg        o_hsync,       // Pulso de sincronismo horizontal (ativo em baixo)
    output reg        o_vsync,       // Pulso de sincronismo vertical (ativo em baixo)
    output reg        o_blank_n,     // Área ativa de vídeo (1 = visível, 0 = apagamento)
+   output reg        o_inicio_vblank, // Pulso de 1 clock no inicio do VBlank
    output wire [9:0] o_x,           // Coordenada física horizontal do pixel
    output wire [9:0] o_y            // Coordenada física vertical do pixel
 );
@@ -64,7 +65,11 @@ module controlador_vga (
          o_hsync   <= 1'b1;
          o_vsync   <= 1'b1;
          o_blank_n <= 1'b0;
+         o_inicio_vblank <= 1'b0;
       end else begin
+         o_inicio_vblank <= 1'b0;
+         if ((contador_h == 10'd0) && (contador_v == V_ATIVO))
+            o_inicio_vblank <= 1'b1;
          // HSYNC ativo em baixo durante a janela do pulso de sincronismo horizontal
          if ((contador_h >= (H_ATIVO + H_FRONT_PORCH)) && 
             (contador_h < (H_ATIVO + H_FRONT_PORCH + H_SYNC_PULSE))) begin
