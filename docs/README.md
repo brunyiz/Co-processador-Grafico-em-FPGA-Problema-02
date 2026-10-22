@@ -5,7 +5,7 @@ Núcleo de um coprocessador gráfico programável implementado em Verilog na pla
 
 Projeto desenvolvido para a disciplina **MI - Sistemas Digitais** (Problema 02, semestre 2026.2).
 
-Docente: *Angelo Duarte"
+Docente: *Angelo Duarte*
 
 Discentes:
 - *Bruna de Almeida Nascimento*
