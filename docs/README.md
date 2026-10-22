@@ -3,9 +3,7 @@
 
 Núcleo de um coprocessador gráfico programável implementado em Verilog na plataforma Terasic DE1-SoC (Intel/Altera Cyclone V). O projeto dá continuidade ao núcleo gráfico desenvolvido no Problema 01, transformando-o em uma arquitetura programável organizada de forma semelhante a processadores convencionais, com ISA de 32 bits, unidade de busca de instruções, unidade de controle, datapath, banco de registradores, ULA e registrador de status, integrando os motores gráficos (background, sprites e polígonos) como unidades funcionais acionadas por instruções.
 
-Projeto desenvolvido para a disciplina **MI — Sistemas Digitais** (Problema 02, semestre 2026.2).
-
-> Legenda: 🟠 = **pendente de análise dos autores** (decisão de projeto que só a equipe pode confirmar).
+Projeto desenvolvido para a disciplina **MI - Sistemas Digitais** (Problema 02, semestre 2026.2).
 
 ---
 
@@ -102,11 +100,11 @@ Deve existir, conforme a estratégia adotada pela equipe:
 
 ## Arquitetura
 
-![Diagrama de alto nível](docs/diagrama_alto_nivel.png)
+![Diagrama de alto nível](images/diagrama_alto_nivel.png)
 
 No diagrama, `KEY0` e `CLOCK50MHZ` entram em `CLOCK_RESET`; o `CONTROLADOR_VGA` fornece as coordenadas aos motores; a `UNIDADE DE CONTROLE` aciona os motores (setas verdes) e escreve no `STATUS`, que o ARM lê de volta; a `FIFO` também alimenta o `STATUS` (setas vermelhas).
 
-🟠 *Pendente de análise pois o diagrama não mostra o datapath (banco de registradores e ULA) nem a unidade de controle de quadro, embora o RTL tenha banco/ULA dentro da unidade de controle; a equipe deve decidir se os acrescenta ao diagrama ou os explica só no texto.*
+O diagrama mostra a visão de alto nível: o banco de registradores, o datapath e a ULA ficam **dentro** do bloco `UNIDADE DE CONTROLE` (módulos `datapath_grafico`, `banco_registradores_graficos` e `ula_grafica`) e por isso não aparecem como blocos separados. O bloco `FIFO` + `IR` corresponde à unidade de busca (`fila_comandos.v`). Não há módulo separado de controle de quadro (ver [Sincronização com VGA](#sincronização-com-vga)).
 
 O sistema tem dois planos independentes:
 
@@ -121,7 +119,7 @@ O sistema tem dois planos independentes:
 | Unidade de Controle | `unidade_controle.v` | FSM (`IDLE, SETTLE, RUN, TOG, TOGWAIT, WAIT_VBLANK`) que decodifica o opcode, valida a instrução e gera os pulsos para os motores. |
 | Datapath | `datapath_grafico.v` | Banco de registradores + duas ULAs que comparam a posição atual do sprite com o alvo da instrução. |
 | Banco de registradores | `banco_registradores_graficos.v` | `r0..r7` de 32 bits: vértices/cor do triângulo (`r0..r2`) e pontos/cor do retângulo (`r3..r4`). |
-| ULA | `ula_grafica.v` | Soma, subtração, AND, OR e flags `zero`/`menor`. 🟠 *Pendente de análise pois a decisão de sessão foi dispensar a ULA, mas esta versão a inclui; a equipe precisa definir como será apresentada.* |
+| ULA | `ula_grafica.v` | Soma, subtração, AND, OR e flags `zero`/`menor`. Em uso: duas instâncias subtraem/comparam a posição atual do sprite com o alvo da instrução `SPRITE` (malha fechada); soma, AND e OR estão disponíveis, mas não são usadas por nenhuma instrução gráfica. |
 | Registrador de status | `main.v` (`status_reg`) | `GPU_STATUS`: assinatura `0x4750` em `[31:16]` e `DONE, BUSY, READY, ERRO, ACK` em `[4:0]`. |
 | Motor de Background | `motor_background.v`, `mapa_ram.v` | Tilemap 40×30 em RAM de duas portas (tiles de cor sólida, 8×8 px) e *scroll* relativo com *wrap*. |
 | Motor de Sprites | `motor_sprites.v`, `sprite_rom.v` | 32 sprites 16×16 (registradores de atributos + ROM de padrões). |
@@ -153,7 +151,8 @@ Endereços na ponte *lightweight* (base `0xFF200000`):
 
 - `READY`: há espaço na FIFO para nova palavra. `BUSY`: UC ou FIFO ocupadas. `DONE`: FIFO vazia e UC ociosa. `ACK`: palavra aceita. `ERRO`: instrução inválida.
 - O controlador VGA gera o pulso `inicio_vblank` (início da linha 480). A instrução `VSYNC` bloqueia a fila até o **próximo** VBlank, permitindo agrupar alterações visuais e evitar *tearing*.
-- 🟠 *Pendente de análise pois não há unidade de controle de quadro separada nem contador de quadros: a equipe deve decidir se `VSYNC` + `inicio_vblank` bastam para cumprir esse requisito ou se acrescentam um módulo.*
+- Não existe módulo dedicado de controle de quadro nem contador de quadros: a sincronização com o quadro é feita pelo pulso `inicio_vblank` do controlador VGA, consumido pela instrução `VSYNC` na unidade de controle. O compositor e o controlador VGA operam continuamente, independentes das instruções.
+- As instruções **não** são aplicadas de forma atômica no mesmo quadro: cada uma é executada na ordem em que sai da FIFO. Um programa que começa com `VSYNC` faz as instruções seguintes de 1 ciclo (`TILE`, `SCROLL`, retângulo, triângulo) executarem em sequência logo após o início do VBlank, mas `SPRITE` leva milissegundos (ver Desempenho).
 
 ---
 
@@ -217,16 +216,16 @@ Os registradores não são endereçáveis pelo programador: são escritos pela U
 
 ```
 .
-├── README.md
-├── .gitignore
 ├── docs/
+│   ├── README.md                      este documento
 │   ├── ISA_instruction.txt            especificação da ISA
-│   └── diagrama_alto_nivel.png        diagrama de blocos
+│   ├── diagrama_alto_nivel.png        diagrama de blocos
+│   └── images/                        diagrama e fotos da demonstração
 ├── software/                          programa do HPS (ARM)
 │   ├── gpu_driver.c                   driver MMIO (init, envio, espera)
 │   ├── gpu_driver_arm.S               rotinas em Assembly ARM (MMIO e empacotamento)
 │   ├── menu.c                         menu de demonstração
-│   └── montador_gasm.py               montador da sintaxe da ISA (.gasm) 
+│   └── montador_gasm.py               montador da sintaxe da ISA (.gasm)
 └── src/                               projeto Quartus
     ├── PBL02_G04_coprocessador_grafico.qpf / .qsf
     ├── soc_system.qsys                sistema HPS (Platform Designer)
@@ -284,11 +283,25 @@ Arquivos gerados (`src/soc_system/`, `db/`, `output_files/`, `.sof`...) não sã
 
 ## Programa de Demonstração
 
-**Programa em Assembly do ARM / C (busca passiva):** `software/menu.c` + `software/gpu_driver.c` + `software/gpu_driver_arm.S`. O menu envia, por SSH no terminal do HPS, instruções de sprite (posição, visibilidade, espelho, transparência), tile, scroll, retângulo, triângulo e `VSYNC`. As rotinas `gpu_pack_*` (Assembly ARM) montam as palavras da ISA e `gpu_mmio_write32/read32` acessam os PIOs.
+**Programa do ARM (busca passiva):** `software/menu.c` + `software/gpu_driver.c` + `software/gpu_driver_arm.S`. O menu envia, por SSH no terminal do HPS, instruções de sprite (posição, visibilidade, espelho, transparência), tile, scroll, retângulo, triângulo e `VSYNC`.
 
-**Programa em Assembly da ISA da equipe:** `software/montador_gasm.py` converte arquivos `.gasm` (mnemônicos `TILE`, `SPRITE`, `RECT_P1/P2`, `TRI_P1/P2/P3`, `BG_SCROLL`, `VSYNC`) nas palavras de 32 bits.
+> **Erro da equipe (não conforme):** o driver ficou **dividido entre C e Assembly**, o que não podia. Em Assembly ARM estão apenas `gpu_pack_*` (montagem das palavras da ISA) e `gpu_mmio_write32/read32` (acesso aos PIOs com barreiras `DMB`), em `gpu_driver_arm.S`. Em **C** (`gpu_driver.c`) estão a inicialização (`gpu_init`, `/dev/mem` e `mmap`), a espera por `READY`/`ACK`/`DONE` e o envio das instruções (`gpu_send_*`); o menu (`menu.c`) também é em C. O requisito exige um programa em Assembly ARM que use o coprocessador, então este ponto **não foi atendido** (ver [Funcionalidades Não Atendidas](#funcionalidades-não-atendidas)).
 
-🟠 *Pendente de análise pois a sintaxe do Assembly da ISA é decisão dos autores: o montador é uma proposta e ainda falta o programa `.gasm` de demonstração versionado no repositório e sua integração com o driver.*
+**Assembly da ISA da equipe:** `software/montador_gasm.py` converte arquivos `.gasm` (mnemônicos `TILE`, `SPRITE`, `RECT_P1/P2`, `TRI_P1/P2/P3`, `BG_SCROLL`, `VSYNC`) nas palavras de 32 bits. Exemplo de programa nessa sintaxe (cores em RGB332 hexadecimal; `SPRITE id x y visível espelho transparente`):
+
+```
+VSYNC                          # espera o início do próximo VBlank
+TILE 8 28 0x03                 # tile azul
+RECT_P1 40 120 0x1F            # retângulo ciano: ponto 1 + cor
+RECT_P2 100 220                # ponto 2 (dispara o desenho)
+TRI_P1 200 60 0xE0             # triângulo vermelho: P1 + cor
+TRI_P2 260 60
+TRI_P3 230 20                  # P3 (dispara o desenho)
+BG_SCROLL RIGHT 2              # câmera 2 tiles à direita
+SPRITE 3 188 32 1 3 1          # sprite 3, espelho X+Y, transparente
+```
+
+Montagem: `python3 software/montador_gasm.py programa.gasm` imprime uma palavra hexadecimal por instrução (`--c` gera um vetor C). Esse listado é um exemplo da sintaxe; o programa não está versionado como arquivo nem integrado ao driver: o envio das palavras é feito pelo menu.
 
 ---
 
@@ -302,6 +315,7 @@ Arquivos gerados (`src/soc_system/`, `db/`, `output_files/`, `.sof`...) não sã
 6. No Linux da placa, habilite a ponte HPS→FPGA, copie `software/` e compile:
 
 ```bash
+cd software
 gcc menu.c gpu_driver.c gpu_driver_arm.S -o gpu_menu -lrt
 sudo ./gpu_menu
 ```
@@ -314,50 +328,41 @@ Reset: botão `KEY0` da placa (ativo em nível baixo), sincronizado em `clock_re
 
 ### Cenários de Teste
 
-| Cenário | Descrição | Método |
-|---|---|---|
-| Transparência | Sprite com bit de transparência: índice `00` deixa ver as camadas inferiores | Menu do HPS na placa |
-| Espelhamento | Sprite com espelho H, V e ambos | Menu do HPS na placa |
-| Sobreposição | Sprites e polígono sobrepostos | Menu do HPS na placa |
-| Prioridade | Sprite > polígono > background | Menu do HPS na placa |
-| Troca de buffers | Não há *frame buffer*; `VSYNC` sincroniza alterações com o VBlank | Ver [Funcionalidades Não Atendidas](#funcionalidades-não-atendidas) |
-| Comandos inválidos | Opcode desconhecido, tile fora da grade, etapa fora de ordem → `ERRO` | Menu do HPS (leitura de `STATUS`) |
-| Sincronização busy/done | `BUSY` durante `SPRITE`/`VSYNC`; `DONE` ao final | Leitura de `STATUS` |
-
-🟠 *Pendente de análise pois os resultados observados nestes cenários só os autores podem registrar após rodar na placa.*
-
-### Testbenches
-
-- Testbench por módulo principal.
-- Testbench de integração do coprocessador.
-
-🟠 *Pendente de análise pois não há testbenches nesta versão do pacote; os da versão anterior referenciavam módulos removidos (`unidade_controle_sprites`, `controle_quadro`) e precisam ser adaptados.*
+| Cenário | Descrição | Método | Evidência |
+|---|---|---|---|
+| Transparência | Sprite com bit de transparência: índice `00` deixa ver as camadas inferiores | Menu do HPS na placa | Figura 2: o fundo aparece ao redor dos sprites |
+| Sobreposição | Sprites e polígono sobrepostos ao background | Menu do HPS na placa | Figuras 1 e 2: sprites e retângulo cobrem o background |
+| Scroll com *wrap* | Linhas do mapa reaparecem no lado oposto | Menu do HPS na placa | Figura 3 |
+| Troca de buffers | Não há *frame buffer*; `VSYNC` sincroniza alterações com o VBlank | Ver [Funcionalidades Não Atendidas](#funcionalidades-não-atendidas) | Não se aplica |
 
 ### Scripts de Automação
 
-`software/montador_gasm.py` (montagem de `.gasm`). Comandos de simulação/síntese: 🟠 *pendente de análise pois dependem do fluxo escolhido pela equipe (ModelSim/Questa ou Quartus em linha de comando).*
+`software/montador_gasm.py` (montagem de `.gasm`) e comandos de geração do HPS, compilação e programação:
+
+```bash
+cd src && qsys-generate soc_system.qsys --synthesis=VERILOG
+quartus_sh --flow compile PBL02_G04_coprocessador_grafico
+quartus_pgm -m jtag -o "p;output_files/PBL02_G04_coprocessador_grafico.sof@2"   # dispositivo 2 da cadeia JTAG da DE1-SoC
+```
 
 ---
 
 ## Resultados e Análise
 
-### Utilização de Recursos
-
-🟠 *Pendente de análise pois a tabela deve ser extraída do relatório do Fitter após a compilação final (ALMs, registradores, pinos, blocos de memória, DSPs).*
-
-### Timing
-
-🟠 *Pendente de análise pois Fmax, *setup slack* por *corner* e caminho crítico só existem após a compilação. Ponto de atenção: o rasterizador calcula três funções de borda por pixel em lógica combinacional, e o clock de 25 MHz é gerado por divisor (`create_generated_clock` em `clocks.sdc`).*
-
 ### Desempenho
 
 - Instruções `TILE`, `SCROLL`, `RETANGULO`, `TRIANGULO`: concluem em 1 ciclo de 25 MHz na UC após chegarem ao IR.
 - `SPRITE`: movimento em malha fechada de ≈ 1 px a cada 14 ms; um deslocamento longo (≈ 300 px) leva da ordem de 4 s e bloqueia a fila até concluir.
-- 🟠 *Vazão MMIO (palavras/s) e latência medida: pendente de análise pois exige medição na placa.*
 
 ### Demonstração em Hardware
 
-🟠 *Pendente de análise pois fotos, vídeos e observações da placa devem ser registrados pelos autores.*
+Resultados observados na DE1-SoC, com monitor VGA, programa enviado pelo HPS:
+
+| Figura | O que mostra |
+|---|---|
+| ![Background](images/cenario_background.jpg)<br>*Figura 1 — Background (tilemap 40×30)* | Mapa de tiles de cor sólida em estado inicial, sem sprites e sem polígonos. |
+| ![Sprites e retângulo](images/cenario_sprites_retangulo.jpg)<br>*Figura 2 — Sprites e retângulo* | Cinco sprites 16×16 com fundo transparente sobre o background, e um retângulo ciano (polígono) cobrindo parte do mapa. |
+| ![Scroll e sprites](images/cenario_scroll_sprites.jpg)<br>*Figura 3 — Scroll com wrap* | Mapa deslocado verticalmente: as linhas de baixo reaparecem no topo (*wrap*), com sprites posicionados sobre o fundo. |
 
 ---
 
@@ -368,10 +373,14 @@ Reset: botão `KEY0` da placa (ativo em nível baixo), sincronizado em `clock_re
 - **Padrões de tile e paleta programável:** o tile é cor sólida (índices RGB332 da VGA) e a paleta é fixa, conforme liberado pelo tutor; sprites sem seleção de paleta (idem).
 - **Polígonos:** o rasterizador guarda um único polígono por vez.
 - **Sprite:** movimento lento (≈ 14 ms/pixel); padrão fixo por índice; posição limitada a 0..304 × 0..224.
-- **Testbenches e métricas de síntese:** ainda não incluídos.
+- **Driver dividido entre C e Assembly (erro da equipe, não podia):** apenas o empacotamento das palavras e o acesso MMIO (`gpu_driver_arm.S`) estão em Assembly ARM; inicialização, espera e envio das instruções estão em C (`gpu_driver.c`) e o menu é em C. O requisito pede o driver/programa do ARM em Assembly, portanto não foi cumprido.
+- **Execução simultânea das instruções:** não há lógica de sincronização que aplique várias instruções no mesmo quadro; elas executam em sequência (ver [Sincronização com VGA](#sincronização-com-vga)).
+- **Testbenches, relatório de utilização/timing e testes de espelhamento, comandos inválidos e `BUSY`/`DONE`:** não documentados nesta entrega; a validação foi feita na placa (ver Demonstração em Hardware).
 
 ### Melhorias Possíveis
 
+- **Corrigir o driver:** portar `gpu_driver.c` (inicialização por `open`/`mmap`, handshake REQ/ACK e envio das instruções) integralmente para Assembly ARM.
+- **Atualização atômica por quadro:** registradores sombra nos motores, copiados todos juntos no `inicio_vblank`, para que qualquer instrução (inclusive `SPRITE`) apareça no mesmo quadro; exige alterar o RTL.
 - Escrever atributos do sprite diretamente (posição em poucos ciclos) e instrução para trocar o padrão.
 - Lista de polígonos ou *frame buffer* com troca no VBlank.
 - Contador de quadros no `STATUS`; sincronizador para `GPU_STATUS` ao cruzar de 25 MHz para o PIO.
@@ -381,12 +390,12 @@ Reset: botão `KEY0` da placa (ativo em nível baixo), sincronizado em `clock_re
 
 ## Autores
 
-- 🟠 *Autor 1 (preencher)*
-- 🟠 *Autor 2 (preencher)*
-- 🟠 *Autor 3 (preencher)*
+- *Bruna de Almeida Nascimento*
+- *Carlos Daniel da Silva Jesus*
+- *Diego Mercês Almeida*
 
-Bacharelado em Engenharia de Computação — UEFS
-Disciplina: MI — Sistemas Digitais (2026.2)
+Bacharelado em Engenharia de Computação - UEFS
+Disciplina: MI - Sistemas Digitais (2026.2)
 
 ---
 
