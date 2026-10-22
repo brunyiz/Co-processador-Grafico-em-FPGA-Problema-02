@@ -5,6 +5,13 @@ Núcleo de um coprocessador gráfico programável implementado em Verilog na pla
 
 Projeto desenvolvido para a disciplina **MI - Sistemas Digitais** (Problema 02, semestre 2026.2).
 
+Docente: *Angelo Duarte"
+
+Discentes:
+- *Bruna de Almeida Nascimento*
+- *Carlos Daniel da Silva Jesus*
+- *Diego Mercês Almeida*
+
 ---
 
 ## Sumário
@@ -285,7 +292,7 @@ Arquivos gerados (`src/soc_system/`, `db/`, `output_files/`, `.sof`...) não sã
 
 **Programa do ARM (busca passiva):** `software/menu.c` + `software/gpu_driver.c` + `software/gpu_driver_arm.S`. O menu envia, por SSH no terminal do HPS, instruções de sprite (posição, visibilidade, espelho, transparência), tile, scroll, retângulo, triângulo e `VSYNC`.
 
-> **Erro da equipe (não conforme):** o driver ficou **dividido entre C e Assembly**, o que não podia. Em Assembly ARM estão apenas `gpu_pack_*` (montagem das palavras da ISA) e `gpu_mmio_write32/read32` (acesso aos PIOs com barreiras `DMB`), em `gpu_driver_arm.S`. Em **C** (`gpu_driver.c`) estão a inicialização (`gpu_init`, `/dev/mem` e `mmap`), a espera por `READY`/`ACK`/`DONE` e o envio das instruções (`gpu_send_*`); o menu (`menu.c`) também é em C. O requisito exige um programa em Assembly ARM que use o coprocessador, então este ponto **não foi atendido** (ver [Funcionalidades Não Atendidas](#funcionalidades-não-atendidas)).
+> **Não conforme:** o driver ficou **dividido entre C e Assembly**, o que não podia. Em Assembly ARM estão apenas `gpu_pack_*` (montagem das palavras da ISA) e `gpu_mmio_write32/read32` (acesso aos PIOs com barreiras `DMB`), em `gpu_driver_arm.S`. Em **C** (`gpu_driver.c`) estão a inicialização (`gpu_init`, `/dev/mem` e `mmap`), a espera por `READY`/`ACK`/`DONE` e o envio das instruções (`gpu_send_*`); o menu (`menu.c`) também é em C. O requisito exige um programa em Assembly ARM que use o coprocessador, então este ponto **não foi atendido** (ver [Funcionalidades Não Atendidas](#funcionalidades-não-atendidas)).
 
 **Assembly da ISA da equipe:** `software/montador_gasm.py` converte arquivos `.gasm` (mnemônicos `TILE`, `SPRITE`, `RECT_P1/P2`, `TRI_P1/P2/P3`, `BG_SCROLL`, `VSYNC`) nas palavras de 32 bits. Exemplo de programa nessa sintaxe (cores em RGB332 hexadecimal; `SPRITE id x y visível espelho transparente`):
 
@@ -373,7 +380,7 @@ Resultados observados na DE1-SoC, com monitor VGA, programa enviado pelo HPS:
 - **Padrões de tile e paleta programável:** o tile é cor sólida (índices RGB332 da VGA) e a paleta é fixa, conforme liberado pelo tutor; sprites sem seleção de paleta (idem).
 - **Polígonos:** o rasterizador guarda um único polígono por vez.
 - **Sprite:** movimento lento (≈ 14 ms/pixel); padrão fixo por índice; posição limitada a 0..304 × 0..224.
-- **Driver dividido entre C e Assembly (erro da equipe, não podia):** apenas o empacotamento das palavras e o acesso MMIO (`gpu_driver_arm.S`) estão em Assembly ARM; inicialização, espera e envio das instruções estão em C (`gpu_driver.c`) e o menu é em C. O requisito pede o driver/programa do ARM em Assembly, portanto não foi cumprido.
+- **Driver dividido entre C e Assembly:** apenas o empacotamento das palavras e o acesso MMIO (`gpu_driver_arm.S`) estão em Assembly ARM; inicialização, espera e envio das instruções estão em C (`gpu_driver.c`) e o menu é em C. O requisito pede o driver/programa do ARM em Assembly, portanto não foi cumprido.
 - **Execução simultânea das instruções:** não há lógica de sincronização que aplique várias instruções no mesmo quadro; elas executam em sequência (ver [Sincronização com VGA](#sincronização-com-vga)).
 - **Testbenches, relatório de utilização/timing e testes de espelhamento, comandos inválidos e `BUSY`/`DONE`:** não documentados nesta entrega; a validação foi feita na placa (ver Demonstração em Hardware).
 
